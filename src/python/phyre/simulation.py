@@ -109,16 +109,21 @@ class Simulation(object):
                  *,
                  status=None,
                  images: Optional[np.ndarray] = None,
-                 featurized_objects: Optional[np.ndarray] = None):
+                 featurized_objects: Optional[np.ndarray] = None,
+                 object_masks: Optional[np.ndarray] = None):
         self.status = status
         self.images = images
         if featurized_objects is not None:
             self.featurized_objects = FeaturizedObjects(featurized_objects)
         else:
             self.featurized_objects = None
+        
+        if object_masks is not None:
+            self.object_masks = object_masks
 
 
 class FeaturizedObjects():
+
     """Featurization of objects in a series of scene, such as from a simulation.
     Returned by either ActionSimulator.intial_featurized_objects, or 
     ActionSimulator.simulate_action if `need_featurized_objects=True`.

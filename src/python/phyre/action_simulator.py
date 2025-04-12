@@ -163,7 +163,7 @@ class ActionSimulator():
 
     def _simulate_user_input(
             self, task_index, user_input, need_images, need_featurized_objects,
-            stride) -> Tuple[SimulationStatus, MaybeImages, MaybeObjects]:
+            need_object_masks,stride,) -> Tuple[SimulationStatus, MaybeImages, MaybeObjects]:
         serialzed_task = self._serialized[task_index]
         # FIXME: merge this into single call to simulator.
         if not self._action_mapper.OCCLUSIONS_ALLOWED:
@@ -175,17 +175,22 @@ class ActionSimulator():
 
         if not need_images and not need_featurized_objects:
             stride = 100000
-        is_solved, had_occlusions, images, objects = phyre.simulator.magic_ponies(
+        
+        is_solved, had_occlusions, images, objects, object_masks = phyre.simulator.magic_ponies(
             serialzed_task,
             user_input,
             stride=stride,
             keep_space_around_bodies=self._keep_spaces,
             need_images=need_images,
-            need_featurized_objects=need_featurized_objects)
+            need_featurized_objects=need_featurized_objects,
+            need_object_masks=need_object_masks,)
+        
         if not need_images:
             images = None
         if not need_featurized_objects:
             objects = None
+        if not need_object_masks:
+            object_masks = None
 
         # We checked for occulsions before simulation, so being here means we
         # have a bug.
@@ -196,7 +201,7 @@ class ActionSimulator():
         else:
             status = SimulationStatus.NOT_SOLVED
 
-        return status, images, objects
+        return status, images, objects, object_masks
 
     def simulate_single(self,
                         task_index: int,
@@ -243,6 +248,7 @@ class ActionSimulator():
                         *,
                         need_images: bool = True,
                         need_featurized_objects: bool = False,
+                        need_object_masks: bool = False,
                         stride: int = phyre.simulator.DEFAULT_STRIDE,
                         stable: bool = False) -> phyre.simulation.Simulation:
         """Runs simluation for the action.
@@ -275,30 +281,34 @@ class ActionSimulator():
             return phyre.simulation.Simulation(
                 status=SimulationStatus.INVALID_INPUT)
 
-        main_status, images, objects = self._simulate_user_input(
-            task_index, user_input, need_images, need_featurized_objects,
-            stride)
+        main_status, images, objects, object_masks = self._simulate_user_input(
+            task_index, user_input, need_images, need_featurized_objects,need_object_masks,stride)
+        
         if not stable or not main_status.is_solved():
             return phyre.simulation.Simulation(status=main_status,
                                                images=images,
-                                               featurized_objects=objects)
+                                               featurized_objects=objects,
+                                                  object_masks=object_masks)
 
         for modified_user_input in _yield_user_input_neighborhood(user_input):
-            status, _, _ = self._simulate_user_input(
+            status, _, _, _ = self._simulate_user_input(
                 task_index,
                 modified_user_input,
                 need_images=False,
                 need_featurized_objects=False,
+                need_object_masks=False,
                 stride=stride)
             if status.is_not_solved():
                 return phyre.simulation.Simulation(
                     status=SimulationStatus.UNSTABLY_SOLVED,
                     images=images,
-                    featurized_objects=objects)
+                    featurized_objects=objects,
+                    object_masks=object_masks)
         return phyre.simulation.Simulation(
             status=SimulationStatus.STABLY_SOLVED,
             images=images,
-            featurized_objects=objects)
+            featurized_objects=objects,
+            object_masks=object_masks)
 
 
 def _yield_user_input_neighborhood(base_user_input):

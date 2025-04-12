@@ -196,7 +196,8 @@ def magic_ponies(task,
                  keep_space_around_bodies=True,
                  with_times=False,
                  need_images=False,
-                 need_featurized_objects=False):
+                 need_featurized_objects=False,
+                 need_object_masks=False):
     """Check a solution for a task and return intermidiate images.
 
     Args:
@@ -219,6 +220,7 @@ def magic_ponies(task,
         with_times: A boolean flag indicating whether timing info is required.
         need_images: A boolean flag indicating whether images should be returned.
         need_featurized_objects: A boolean flag indicating whether objects should be returned.
+        need_object_masks: A boolean flag indicating whether object masks should be returned.
 
     Returns:
         A tuple (is_solved, had_occlusions, images, objects) if with_times is False.
@@ -238,26 +240,42 @@ def magic_ponies(task,
         serialized_task = serialize(task)
         height, width = task.scene.height, task.scene.width
     if isinstance(user_input, scene_if.UserInput):
-        is_solved, had_occlusions, packed_images, packed_featurized_objects, number_objects, sim_time, pack_time = (
-            simulator_bindings.magic_ponies_general(serialized_task,
-                                                    serialize(user_input),
-                                                    keep_space_around_bodies,
-                                                    steps, stride, need_images,
-                                                    need_featurized_objects))
+        serialized_user_input = serialize(user_input)
+        """
+        isSolved, hadOcclusions, packedImagesArray,
+        packedObjectMasksArray, numObjectsPerScene,
+        packedObjectsArray, numObjectsPerScene,
+        simulation_seconds, pack_seconds
+        """
+        is_solved, had_occlusions, packed_images, packed_object_masks, num_objects_per_scene, packed_featurized_objects, number_objects, sim_time, pack_time = (
+            simulator_bindings.magic_ponies_general(
+                serialized_task, serialized_user_input,
+                keep_space_around_bodies, steps, stride, need_images,
+                need_featurized_objects, need_object_masks))
     else:
         points, rectangulars, balls = _prepare_user_input(*user_input)
-        is_solved, had_occlusions, packed_images, packed_featurized_objects, number_objects, sim_time, pack_time = (
+        is_solved, had_occlusions, packed_images, packed_object_masks, num_objects_per_scene, packed_featurized_objects, number_objects, sim_time, pack_time = (
             simulator_bindings.magic_ponies(serialized_task, points,
-                                            rectangulars, balls,
-                                            keep_space_around_bodies, steps,
-                                            stride, need_images,
-                                            need_featurized_objects))
+                                        rectangulars, balls,
+                                        keep_space_around_bodies, steps,
+                                        stride, need_images,
+                                        need_featurized_objects,
+                                        need_object_masks))
 
     packed_images = np.array(packed_images, dtype=np.uint8)
 
     images = packed_images.reshape((-1, height, width))
+
+    object_masks = None
+    if need_object_masks:
+        packed_object_masks = np.array(packed_object_masks, dtype=np.uint8)
+        num_frames = images.shape[0]
+        object_masks = packed_object_masks.reshape((num_frames, num_objects_per_scene, height, width))
+
     packed_featurized_objects = np.array(packed_featurized_objects,
                                          dtype=np.float32)
+
+    
     if packed_featurized_objects.size == 0:
         # Custom task without any known objects.
         packed_featurized_objects = np.zeros(
@@ -268,9 +286,9 @@ def magic_ponies(task,
     packed_featurized_objects = phyre.simulation.finalize_featurized_objects(
         packed_featurized_objects)
     if with_times:
-        return is_solved, had_occlusions, images, packed_featurized_objects, sim_time, pack_time
+        return is_solved, had_occlusions, images, packed_featurized_objects, object_masks, sim_time, pack_time
     else:
-        return is_solved, had_occlusions, images, packed_featurized_objects
+        return is_solved, had_occlusions, images, packed_featurized_objects, object_masks
 
 
 def batched_magic_ponies(tasks,

@@ -145,9 +145,53 @@ bool hadSimulationOcclusions(const TaskSimulation &simulation) {
              : scenes[0].user_input_status == UserInputStatus::HAD_OCCLUSIONS;
 }
 
+
+void renderAllObjectMasksTo(const Scene &scene, uint8_t *bufferStart) {
+  const int imageSize = scene.width * scene.height;
+  int currentObjectIndex = 0;
+
+  // 辅助函数，用于渲染单个物体
+  auto renderSingleBody = [&](const ::scene::Body& body) {
+      // 创建一个只包含当前物体的临时场景
+      ::scene::Scene singleObjectScene;
+      singleObjectScene.__set_width(scene.width);
+      singleObjectScene.__set_height(scene.height);
+      singleObjectScene.bodies.push_back(body);
+
+      auto singleObjectImage = render(singleObjectScene);
+
+      // 计算当前物体掩码的写入位置
+      uint8_t* currentMaskBuffer = bufferStart + currentObjectIndex * imageSize;
+
+      // 检查渲染尺寸并复制
+      if (singleObjectImage.values.size() == imageSize) {
+          std::copy(singleObjectImage.values.begin(), singleObjectImage.values.end(), currentMaskBuffer);
+      } else {
+          fprintf(stderr, "Warning: Rendered object mask size mismatch. Expected %d, got %zu. Filling with 0.\n",
+                  imageSize, singleObjectImage.values.size());
+          std::fill(currentMaskBuffer, currentMaskBuffer + imageSize, 0);
+      }
+      currentObjectIndex++;
+  };
+
+  for (const auto& body : scene.bodies) {
+      // 跳过无效形状的物体
+      if (body.shapeType != ::scene::ShapeType::UNDEFINED) {
+          renderSingleBody(body);
+      }
+  }
+
+  for (const auto& body : scene.user_input_bodies) {
+      if (body.shapeType != ::scene::ShapeType::UNDEFINED) {
+          renderSingleBody(body);
+      }
+  }
+}
+
+
 auto magic_ponies(const py::bytes &serialized_task, const UserInput &user_input,
                   bool keep_space_around_bodies, int steps, int stride,
-                  bool need_images, bool need_featurized_objects) {
+                  bool need_images, bool need_featurized_objects, bool need_object_masks) {
   SimpleTimer timer;
   Task task = deserialize<Task>(serialized_task);
   addUserInputToScene(user_input, keep_space_around_bodies,
@@ -164,15 +208,29 @@ auto magic_ponies(const py::bytes &serialized_task, const UserInput &user_input,
 
   const int imageSize = task.scene.width * task.scene.height;
   uint8_t *packedImages = new uint8_t[imageSize * numImagesTotal];
-  if (numImagesTotal > 0) {
-    int writeIndex = 0;
+
+  const int numSceneObjects = getNumObjects(simulation);
+  // 添加物体掩码处理
+  uint8_t *packedObjectMasks = new uint8_t[imageSize * numImagesTotal * numSceneObjects];
+  
+  if (numImagesTotal > 0 && packedImages != nullptr) {
+    int imageWriteIndex = 0; // packedImages 的写入索引
+    int sceneIndex = 0;      // 当前处理的场景索引
     for (const Scene &scene : simulation.sceneList) {
-      renderTo(scene, packedImages + writeIndex);
-      writeIndex += imageSize;
+      renderTo(scene, packedImages + imageWriteIndex);
+      imageWriteIndex += imageSize;
+
+      if (need_object_masks && packedObjectMasks != nullptr) {
+        // 计算当前场景所有掩码的起始写入位置
+        uint8_t* currentSceneMasksBuffer = packedObjectMasks + sceneIndex * numSceneObjects * imageSize;
+        // 调用新函数处理当前场景的所有掩码
+        renderAllObjectMasksTo(scene, currentSceneMasksBuffer);
+      }
+      sceneIndex++; // 处理下一个场景
     }
   }
 
-  const int numSceneObjects = getNumObjects(simulation);
+  
   float *packedVectorizedBodies =
       new float[numSceneObjects * kObjectFeatureSize * numScenesTotal];
   if (numScenesTotal > 0) {
@@ -193,16 +251,29 @@ auto magic_ponies(const py::bytes &serialized_task, const UserInput &user_input,
     auto *foo = reinterpret_cast<float *>(f);
     delete[] foo;
   });
+  // 添加物体掩码内存管理
+  py::capsule freeObjectMasksWhenDone(packedObjectMasks, [](void *f) {
+    auto *foo = reinterpret_cast<uint8_t *>(f);
+    delete[] foo;
+  });
+
   auto packedImagesArray =
       py::array_t<uint8_t>({numImagesTotal * imageSize},  // shape
                            {sizeof(uint8_t)}, packedImages, freeImagesWhenDone);
   auto packedObjectsArray = py::array_t<float>(
       {numScenesTotal * numSceneObjects * kObjectFeatureSize},  // shape
       {sizeof(float)}, packedVectorizedBodies, freeObjectsWhenDone);
+
+  auto packedObjectMasksArray = need_object_masks ?
+      py::array_t<uint8_t>({numImagesTotal * numSceneObjects * imageSize},  // shape
+                          {sizeof(uint8_t)}, packedObjectMasks, freeObjectMasksWhenDone) :
+      py::array_t<uint8_t>(0);
+    
   const double pack_seconds = timer.GetSeconds();
   return std::make_tuple(isSolved, hadOcclusions, packedImagesArray,
-                         packedObjectsArray, numSceneObjects,
-                         simulation_seconds, pack_seconds);
+    packedObjectMasksArray, numSceneObjects,
+    packedObjectsArray, numSceneObjects,
+    simulation_seconds, pack_seconds);
 }
 }  // namespace
 
@@ -279,42 +350,39 @@ PYBIND11_MODULE(simulator_bindings, m) {
       "Produce TaskSimulation");
 
   m.def(
-      "magic_ponies",
-      [](const py::bytes &serialized_task, py::array_t<int32_t> points,
-         const std::vector<float> &rectangulars_vertices_flatten,
-         const std::vector<float> &balls_flatten, bool keep_space_around_bodies,
-         int steps, int stride, bool need_images,
-         bool need_featurized_objects) {
-        const UserInput user_input = buildUserInputObject(
-            points, rectangulars_vertices_flatten, balls_flatten);
-        return magic_ponies(serialized_task, user_input,
-                            keep_space_around_bodies, steps, stride,
-                            need_images, need_featurized_objects
-
-        );
-      },
-      "Runs simulation for a batch of tasks and inputs and returns a list of"
-      " isSolved statuses, list of hadOcclusion statuses, number of steps"
-      " within each simulation, packed flatten array of images and timing"
-      " info.");
-
+    "magic_ponies",
+    [](const py::bytes &serialized_task, py::array_t<int32_t> points,
+        const std::vector<float> &rectangulars_vertices_flatten,
+        const std::vector<float> &balls_flatten, bool keep_space_around_bodies,
+        int steps, int stride, bool need_images,
+        bool need_featurized_objects, bool need_object_masks = false) {
+      const UserInput user_input = buildUserInputObject(
+          points, rectangulars_vertices_flatten, balls_flatten);
+      return magic_ponies(serialized_task, user_input,
+                          keep_space_around_bodies, steps, stride,
+                          need_images, need_featurized_objects,
+                          need_object_masks);
+    },
+    "Runs simulation for a batch of tasks and inputs and returns a list of"
+    " isSolved statuses, list of hadOcclusion statuses, number of steps"
+    " within each simulation, packed flatten array of images and object masks and timing"
+    " info.");
+  
   m.def(
       "magic_ponies_general",
       [](const py::bytes &serialized_task,
-         const py::bytes &serialized_user_input,
-
-         bool keep_space_around_bodies, int steps, int stride, bool need_images,
-         bool need_featurized_objects) {
+          const py::bytes &serialized_user_input,
+          bool keep_space_around_bodies, int steps, int stride, bool need_images,
+          bool need_featurized_objects, bool need_object_masks = false) {
         return magic_ponies(serialized_task,
                             deserialize<UserInput>(serialized_user_input),
                             keep_space_around_bodies, steps, stride,
-                            need_images, need_featurized_objects
-
-        );
+                            need_images, need_featurized_objects,
+                            need_object_masks);
       },
       "Runs simulation for a batch of tasks and inputs and returns a list of"
       " isSolved statuses, list of hadOcclusion statuses, number of steps"
-      " within each simulation, packed flatten array of images and timing"
+      " within each simulation, packed flatten array of images, object masks and timing"
       " info.");
 
   m.def(
