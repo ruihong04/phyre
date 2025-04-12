@@ -65,6 +65,8 @@ struct Body {
   5: optional shared.Color color,
   6: optional ShapeType shapeType = SHAPE_TYPE.UNDEFINED,
   7: optional double diameter,
+  100: optional Vector linearVelocity;
+  101: optional double angularVelocity;
 }
 
 // Convex polygon with absolutely positions vecrticies.

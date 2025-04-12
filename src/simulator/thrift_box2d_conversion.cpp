@@ -189,6 +189,14 @@ std::unique_ptr<b2WorldWithData> convertSceneToBox2dWorld_with_bounding_boxes(
     body.position.__set_x(m2p(box2dBody->GetPosition().x));
     body.position.__set_y(m2p(box2dBody->GetPosition().y));
     body.__set_angle(box2dBody->GetAngle());
+    
+    ::scene::Vector linearVelocity;
+    b2Vec2 vel = box2dBody->GetLinearVelocity();
+    linearVelocity.__set_x(m2p(vel.x));
+    linearVelocity.__set_y(m2p(vel.y));
+    body.__set_linearVelocity(linearVelocity);
+    
+    body.__set_angularVelocity(box2dBody->GetAngularVelocity());
   }
   return new_scene;
 }

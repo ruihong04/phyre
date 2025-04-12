@@ -50,7 +50,7 @@ SOLVE_STATUS_COLORS = np.array(
 
 
 def _to_float(img):
-    return np.array(img, dtype=np.float) / 255.
+    return np.array(img, dtype=np.float32) / 255.
 
 
 def observations_to_float_rgb(scene: np.ndarray,

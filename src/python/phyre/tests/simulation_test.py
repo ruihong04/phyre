@@ -90,7 +90,7 @@ class SimulationTest(unittest.TestCase):
         self.assertTrue(featurized_objects.num_user_inputs, 1)
 
     def test_invalid_featurized_objects(self):
-        two_dimension_input = np.arange(28).reshape(2, 14)
+        two_dimension_input = np.arange(34).reshape(2, 17)
         self.assertRaises(AssertionError, phyre.simulation.FeaturizedObjects,
                           two_dimension_input)
 

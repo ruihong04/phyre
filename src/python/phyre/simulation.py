@@ -64,6 +64,7 @@ def finalize_featurized_objects(featurized_objects: np.ndarray,
             ball, bar, jar, standing sticks
         - 8-14: One hot encoding of object color, according to order:
             red, green, blue, purple, gray, black
+        - 14-16: Linear velocity of the object in pixels per second
     """
     featurized_objects = np.copy(featurized_objects)
     direction = 1.0 if shift_direction == PositionShift.TO_CENTER_OF_MASS else -1.0
@@ -124,8 +125,8 @@ class FeaturizedObjects():
     *Note*, for object order, user input objects (if any) are always
     last.
     :ivar features: Featurs of objects of observations for a set (or one) timesteps.
-        TxNx14 np.array where T is the number of timestes, N is the number
-        of objects in the scene and 14 is the feature vector size.
+        TxNx17 np.array where T is the number of timestes, N is the number
+        of objects in the scene and 17 is the feature vector size.
         The features are by index:
             - 0: x in pixels of center of mass divided by SCENE_WIDTH
             - 1: y in pixels of center of mass divided by SCENE_HEIGHT
@@ -135,6 +136,8 @@ class FeaturizedObjects():
                 ball, bar, jar, standing sticks
             - 8-14: One hot encoding of object color, according to order:
                 red, green, blue, purple, gray, black
+            - 14-16: Linear velocity of the object in pixels per second
+            - 16: Angular velocity of the object in radians per second
     :ivar shapes: List(str) of length number of objects of the
         shape types of the objects in order. Values are members of scene_if.ShapeType
     :ivar shapes_one_hot: np.array of size (T, N, 4) corresponding to one hot
@@ -155,7 +158,7 @@ class FeaturizedObjects():
     :ivar num_objects: (int) Number of objects in the simulation_states
     :ivar num_scene_obejcts: (int) Number of scene objects in the simulation.
     """
-    _NUM_FEATURES = 14
+    _NUM_FEATURES = 17
 
     _X_INDEX = 0
     _Y_INDEX = 1
@@ -164,7 +167,11 @@ class FeaturizedObjects():
     _SHAPE_START_INDEX = 4
     _SHAPE_END_INDEX = 8
     _COLOR_START_INDEX = _SHAPE_END_INDEX
-    _COLOR_END_INDEX = _NUM_FEATURES
+    _COLOR_END_INDEX = 14
+    
+    _LINEAR_VELOCITY_X_INDEX = 14
+    _LINEAR_VELOCITY_Y_INDEX = 15
+    _ANGULAR_VELOCITY_INDEX = 16
 
     _STATE_START_INDEX = 0
     _STATE_END_INDEX = _DIAMETER_INDEX
@@ -189,6 +196,12 @@ class FeaturizedObjects():
 
         self.states = featurized_objects[:, :, self._STATE_START_INDEX:self.
                                          _STATE_END_INDEX]
+
+        self.linear_velocity = featurized_objects[:, :,self._LINEAR_VELOCITY_X_INDEX
+                                                    :self._LINEAR_VELOCITY_Y_INDEX+1]
+        self.angular_velocity = featurized_objects[:, :,self._ANGULAR_VELOCITY_INDEX]
+
+        self.features = featurized_objects
 
         self._shapes = None
         self._colors = None
