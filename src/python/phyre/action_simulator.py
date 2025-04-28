@@ -171,7 +171,8 @@ class ActionSimulator():
                     serialzed_task,
                     user_input,
                     keep_space_around_bodies=self._keep_spaces):
-                return SimulationStatus.INVALID_INPUT, None, None
+                print('Occlusions detected. Returning INVALID_INPUT.')
+                return SimulationStatus.INVALID_INPUT, None, None, None
 
         if not need_images and not need_featurized_objects:
             stride = 100000

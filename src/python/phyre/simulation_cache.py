@@ -133,13 +133,18 @@ class SimulationCache():
             raise ValueError(f'Requested more actions ({num_actions}) than'
                              ' exists in the cache ({len(self)}).')
         actions = self._action_array[:num_actions]
-        simulations_states = np.array([
-            self.load_simulation_states(task_id)[:num_actions]
-            for task_id in task_ids
-        ])
-        assert actions.shape[0] == simulations_states.shape[1], (
-            actions.shape, simulations_states.shape)
-        assert actions.shape[0] == num_actions, (actions.shape, num_actions)
-        return dict(task_ids=task_ids,
-                    actions=actions,
-                    simulation_statuses=simulations_states)
+        try:
+            simulations_states = np.array([
+                self.load_simulation_states(task_id)[:num_actions]
+                for task_id in task_ids
+            ])
+            assert actions.shape[0] == simulations_states.shape[1], (
+                actions.shape, simulations_states.shape)
+            assert actions.shape[0] == num_actions, (actions.shape, num_actions)
+            return dict(task_ids=task_ids,
+                        actions=actions,
+                        simulation_statuses=simulations_states)
+        except:
+            return dict(task_ids=task_ids,
+                        actions=actions,
+                        simulation_statuses=None)
